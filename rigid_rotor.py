@@ -656,9 +656,10 @@ def parse_args():
     )
 
     p.add_argument(
-        "--dims", nargs=3, type=float, default=[2.0, 1.0, 0.5],
+        "--dims", nargs=3, type=float, default=[1.4, 1.0, 0.3],
         metavar=('AX','BY','CZ'),
-        help="Box dimensions along body principal axes (default 2 1 0.5)."
+        help="Box dimensions along body principal axes (default 1.4 1.0 0.3). "
+             "Defaults approximately match I=[1,2,3] for a uniform-density box."
     )
 
     p.add_argument(
