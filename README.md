@@ -16,8 +16,8 @@ python rigid_rotor.py [flags]
 
 | Flag | Type / Values | Default | Description |
 |------|---------------|---------|-------------|
-| `--I I1 I2 I3` | floats | `1.0 2.0 3.0` | Principal moments of inertia about the body axes. |
-| `--dims AX BY CZ` | floats | `1.4 1.0 0.3` | Dimensions of the visualized box along its principal axes. Defaults approximately match I=[1,2,3] for a uniform-density box. |
+| `--I I1 I2 I3` | floats | `1.0 4.0 4.9` | Principal moments of inertia about the body axes. |
+| `--dims AX BY CZ` | floats | auto-calculated | Dimensions of the visualized box along its principal axes. Automatically calculated from `--I` to match a uniform-density box unless explicitly specified. |
 | `--w0 W1 W2 W3` | floats | — | Initial angular velocity components in the body frame. |
 | `--stable1` | flag | — | Spin mostly about the smallest-inertia axis (stable). |
 | `--unstable` | flag | — | Spin mostly about the middle-inertia axis (unstable). |

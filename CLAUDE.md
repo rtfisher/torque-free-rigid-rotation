@@ -79,8 +79,8 @@ The rotation matrix R(t) = [e₁ e₂ e₃] transforms between body and space fr
 ### Important CLI Parameters
 
 **Physical Parameters:**
-- `--I I1 I2 I3`: Principal moments of inertia (default: 1.0 2.0 3.0)
-- `--dims AX BY CZ`: Box dimensions along principal axes (default: 1.4 1.0 0.3) - defaults approximately match I=[1,2,3] for a uniform-density box
+- `--I I1 I2 I3`: Principal moments of inertia (default: 1.0 4.0 4.9)
+- `--dims AX BY CZ`: Box dimensions along principal axes (auto-calculated from I if not specified to match uniform-density box)
 - `--w0 W1 W2 W3`: Initial angular velocity in body frame (overrides presets)
 
 **Initial Condition Presets:**

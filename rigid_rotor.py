@@ -650,22 +650,59 @@ def build_initial_w(args, I):
     return np.array([mag, eps, eps], dtype=float)
 
 
+def calculate_dims_from_I(I):
+    """
+    Calculate box dimensions [a, b, c] that produce the given principal moments
+    of inertia for a uniform-density box.
+
+    For a uniform box: I1 ∝ (b² + c²), I2 ∝ (a² + c²), I3 ∝ (a² + b²)
+
+    Returns None if the moments don't satisfy the triangle inequality
+    (required for any physical rigid body).
+    """
+    I1, I2, I3 = I
+
+    # Check triangle inequality
+    if I1 + I2 <= I3 or I1 + I3 <= I2 or I2 + I3 <= I1:
+        return None
+
+    # Solve the system:
+    # b² + c² = I1
+    # a² + c² = I2
+    # a² + b² = I3
+    #
+    # Adding all three: 2(a² + b² + c²) = I1 + I2 + I3
+    # So: a² + b² + c² = (I1 + I2 + I3) / 2
+    sum_all = (I1 + I2 + I3) / 2.0
+
+    # Then: a² = sum_all - I1, b² = sum_all - I2, c² = sum_all - I3
+    a_sq = sum_all - I1
+    b_sq = sum_all - I2
+    c_sq = sum_all - I3
+
+    # All must be positive
+    if a_sq <= 0 or b_sq <= 0 or c_sq <= 0:
+        return None
+
+    return [np.sqrt(a_sq), np.sqrt(b_sq), np.sqrt(c_sq)]
+
+
 def parse_args():
     p = argparse.ArgumentParser(
         description="Animate torque-free rigid body rotation (no quaternions)."
     )
 
     p.add_argument(
-        "--dims", nargs=3, type=float, default=[1.4, 1.0, 0.3],
+        "--dims", nargs=3, type=float, default=None,
         metavar=('AX','BY','CZ'),
-        help="Box dimensions along body principal axes (default 1.4 1.0 0.3). "
-             "Defaults approximately match I=[1,2,3] for a uniform-density box."
+        help="Box dimensions along body principal axes. If not specified, "
+             "automatically calculated from --I to match a uniform-density box."
     )
 
     p.add_argument(
-        "--I", nargs=3, type=float, default=[1.0, 2.0, 3.0],
+        "--I", nargs=3, type=float, default=[1.0, 4.0, 4.9],
         metavar=('I1','I2','I3'),
-        help="Principal moments of inertia (default 1 2 3)."
+        help="Principal moments of inertia (default 1 4 4.9)."
     )
 
     p.add_argument(
@@ -739,8 +776,18 @@ def parse_args():
 def main():
     args = parse_args()
 
-    I    = np.array(args.I,    dtype=float)
-    dims = np.array(args.dims, dtype=float)
+    I = np.array(args.I, dtype=float)
+
+    # If dims not specified, calculate from I to match uniform-density box
+    if args.dims is None:
+        dims = calculate_dims_from_I(I)
+        if dims is None:
+            print("Warning: Moments of inertia violate triangle inequality.")
+            print("Using default dims=[2.0, 1.0, 0.5] instead.")
+            dims = [2.0, 1.0, 0.5]
+        dims = np.array(dims, dtype=float)
+    else:
+        dims = np.array(args.dims, dtype=float)
 
     # choose initial ω in the body frame
     w0 = build_initial_w(args, I)
