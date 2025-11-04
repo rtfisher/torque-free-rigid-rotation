@@ -124,3 +124,57 @@ The dual-frame visualization reveals complementary aspects of rigid body dynamic
 - Rotation about the intermediate axis (I₂) is unstable, causing dramatic tumbling
 - The red trails in both frames make precession patterns visible
 - Energy and |L| are conserved (verified numerically with re-orthonormalization)
+
+## Testing and Verification
+
+The codebase includes a comprehensive test suite (`test_rigid_rotor.py`) with 24 tests that verify:
+
+**Physics Algorithms:**
+- `euler_rhs()`: Torque-free Euler equations with pure spin tests
+- `rhs_full()`: Complete ODE system with axis evolution verification
+- `body_to_space()`: Coordinate transformation correctness
+- `calculate_dims_from_I()`: Moment of inertia calculations
+
+**Conservation Laws:**
+- Energy conservation (E = ½ Σ Iᵢ ωᵢ²) with <0.01% drift over tmax=10
+- Angular momentum magnitude conservation
+- Angular momentum direction conservation in space frame
+
+**Numerical Properties:**
+- Rotation matrix orthogonality (R^T R = I)
+- Determinant preservation (det(R) = 1)
+- Right-handedness (e₁ × e₂ = e₃)
+- Long-term integration stability
+
+**Physics Verification:**
+- Stable rotation about axes 1 and 3
+- Unstable rotation about axis 2 (tennis racket effect)
+- Spherical top (I₁=I₂=I₃) dynamics
+- Axially symmetric top (I₁=I₂≠I₃) precession
+
+**Running Tests:**
+```bash
+# Run all tests locally
+pytest test_rigid_rotor.py -v
+
+# Run with coverage
+pytest test_rigid_rotor.py --cov=rigid_rotor --cov-report=term-missing
+
+# Run specific test category
+pytest test_rigid_rotor.py -v -k "conservation"
+```
+
+**CI/CD:**
+Tests run automatically via GitHub Actions (`.github/workflows/pytest.yml`) on:
+- Every push to main
+- Every pull request
+- Daily at 00:00 UTC (scheduled)
+
+The workflow tests against Python 3.8, 3.9, 3.10, and 3.11.
+
+**Test Tolerances:**
+- TIGHT_TOL = 1e-10: Exact mathematical relationships
+- LOOSE_TOL = 1e-6: Numerical properties during integration
+- INTEGRATION_TOL = 1e-4: Conservation laws over extended time
+
+See `TESTING.md` for detailed documentation of all tests and their physical interpretations.

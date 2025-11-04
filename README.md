@@ -1,5 +1,7 @@
 # Free Rigid Body Rotation Visualizer
 
+![Tests](https://github.com/rtfisher/torque-free-rigid-rotation/actions/workflows/pytest.yml/badge.svg)
+
 This Python script numerically integrates and animates the torque-free rotation of a rigid body with three unequal principal moments of inertia. It's ideal for illustrating precession, the tennis-racket instability, and other classical rigid-body behaviors — using only simple vector equations.
 
 ![Rigid body rotation visualization showing unstable rotation about the intermediate axis](_snapshots/unstable_rigid_rotor_torque_free_screenshot.png)
@@ -157,6 +159,35 @@ brew install ffmpeg
 ```
 
 If ffmpeg isn't installed, the animation will still play interactively but won't save to a file.
+
+## 5.5 Testing
+
+The codebase includes a comprehensive verification test suite that validates the physics algorithms and numerical stability. The test suite includes 24 tests covering:
+
+- **Euler equations**: Pure spin tests, symmetry verification
+- **Conservation laws**: Energy, angular momentum magnitude and direction
+- **Rotation matrices**: Orthogonality, right-handedness
+- **Stability**: Stable axes (1 & 3), unstable axis (2) with tennis-racket effect
+- **Special cases**: Spherical and axially symmetric tops
+- **Numerical integration**: Long-term stability and conservation
+
+### Running Tests Locally
+
+```bash
+# Install pytest
+pip install pytest
+
+# Run all tests
+pytest test_rigid_rotor.py -v
+
+# Run with coverage
+pip install pytest-cov
+pytest test_rigid_rotor.py --cov=rigid_rotor --cov-report=term-missing
+```
+
+### Continuous Integration
+
+Tests run automatically via GitHub Actions on every push and pull request, ensuring code quality. See `TESTING.md` for detailed documentation of the test suite.
 
 ## 6. Interpretation and Physics Takeaways
 
