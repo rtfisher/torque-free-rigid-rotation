@@ -2,7 +2,7 @@
 
 ![Tests](https://github.com/rtfisher/torque-free-rigid-rotation/actions/workflows/pytest.yml/badge.svg)
 
-This Python script numerically integrates and animates the torque-free rotation of a rigid body with three unequal principal moments of inertia. It's ideal for illustrating precession, the tennis-racket instability, and other classical rigid-body behaviors — using only simple vector equations.
+This Python script numerically integrates and animates the torque-free rotation of a rigid body with three unequal principal moments of inertia. It's ideal for illustrating precession, the tennis-racket instability, and other classical rigid-body behaviors — using straightforward numerical integrations of the equations of motion.
 
 ![Rigid body rotation visualization showing unstable rotation about the intermediate axis](_snapshots/unstable_rigid_rotor_torque_free_screenshot.png)
 
