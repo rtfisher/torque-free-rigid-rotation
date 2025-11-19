@@ -6,15 +6,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is a Python-based rigid body rotation simulator that visualizes torque-free rotation of objects with unequal principal moments of inertia. The code demonstrates classical physics phenomena like the tennis-racket instability without using quaternions.
 
-**Key Feature:** The simulator produces **two synchronized 3D views** side-by-side:
+**Key Feature:** The simulator produces **two synchronized 3D views** by default, or **three** with the `--poinsot` flag:
 1. **Inertial Frame** - Watch the body tumble in space with fixed angular momentum
 2. **Body-Centered Frame** - Ride along with the body and see how ω and L evolve in body coordinates
+3. **Poinsot Ellipsoids** (optional) - See the geometric interpretation in ω-space with the momentum and energy ellipsoids and their intersection curve
 
 ## Running the Simulation
 
 ```bash
 # Rotation about intermediate unstable axis for 15 time units
 python rigid_rotor.py --unstable --tmax 15
+
+# Add Poinsot ellipsoids visualization (3rd frame)
+python rigid_rotor.py --unstable --tmax 15 --poinsot
 
 # Save animation to file (requires ffmpeg)
 python rigid_rotor.py --unstable --outfile tumble.mp4
@@ -55,7 +59,7 @@ The rotation matrix R(t) = [e₁ e₂ e₃] transforms between body and space fr
 
 **Visualization:**
 
-- `animate_rigid_body()`: Creates dual-view matplotlib animation with synchronized subplots:
+- `animate_rigid_body(show_poinsot=False)`: Creates two or three-view matplotlib animation with synchronized subplots:
 
   **Top subplot (Inertial Frame):**
   - Rectangular box tumbling in space (z-sorted for hidden surface removal)
@@ -64,12 +68,27 @@ The rotation matrix R(t) = [e₁ e₂ e₃] transforms between body and space fr
   - Red trail showing recent path of ω_space (configurable via --traillen)
   - Red marker dot painted on the body surface, advecting through space
 
-  **Bottom subplot (Body-Centered Frame):**
+  **Middle subplot (Body-Centered Frame):**
   - Rectangular box frozen in body coordinates
   - Red arrow showing ω_body (angular velocity in body frame)
   - Green arrow showing L_body (angular momentum in body frame)
   - Red trail showing recent path of ω_body
   - Red marker dot at fixed position on body surface (specified by --dotpos)
+
+  **Bottom subplot (Poinsot Ellipsoids - optional, shown with --poinsot flag):**
+  - Shows ω in **body frame** where inertia tensor is diagonal
+  - Green ellipsoid representing momentum conservation: I₁²ω₁² + I₂²ω₂² + I₃²ω₃² = L²
+  - Orange (transparent) ellipsoid representing energy conservation: I₁ω₁² + I₂ω₂² + I₃ω₃² = 2E
+  - Yellow curve showing the intersection of the two ellipsoids
+  - Red trail showing the trajectory of ω_body(t) along the intersection curve
+  - Demonstrates Poinsot's geometric interpretation of rigid body rotation
+  - Ellipsoids are fixed in this body-frame representation
+
+**Poinsot Construction:**
+- `make_ellipsoid_surface(semi_axes)`: Generates surface mesh for ellipsoids in ω-space
+- `compute_ellipsoid_intersection(I, L_mag, E)`: Computes the intersection curve of momentum and energy ellipsoids
+  - Solves the system of two quadratic constraints in ω-space
+  - Returns space curves along which ω_body(t) must move
 
 **Geometry:**
 - `make_box(dims)`: Generates box vertices and faces in body frame
@@ -90,6 +109,7 @@ The rotation matrix R(t) = [e₁ e₂ e₃] transforms between body and space fr
 - `--mag`: Base spin magnitude for presets (default: 10.0)
 
 **Visualization Controls:**
+- `--poinsot`: Show Poinsot ellipsoids in a third subplot (default: False)
 - `--vecscale`: Arrow length scaling factor (default: 0.2)
 - `--traillen`: Number of frames in ω trails (default: 100)
 - `--dotpos X Y Z`: Red marker position in body frame as fractions of half-box dimensions (default: 0 1 0)
@@ -105,7 +125,7 @@ The rotation matrix R(t) = [e₁ e₂ e₃] transforms between body and space fr
 
 ## Physics Interpretation
 
-The dual-frame visualization reveals complementary aspects of rigid body dynamics:
+The visualization reveals complementary aspects of rigid body dynamics. By default, two frames are shown; add `--poinsot` for the third frame:
 
 **Inertial Frame (top):**
 - The green L vector remains fixed in space (conservation of angular momentum)
@@ -113,16 +133,27 @@ The dual-frame visualization reveals complementary aspects of rigid body dynamic
 - The separation between ω and L reveals non-trivial dynamics
 - The red marker dot shows how material points on the body trace paths through space
 
-**Body-Centered Frame (bottom):**
+**Body-Centered Frame (middle):**
 - Both ω and L vectors evolve in body coordinates
 - For stable rotation (axes 1 or 3): ω stays nearly aligned with one principal axis
 - For unstable rotation (axis 2): ω undergoes dramatic tumbling, displaying the tennis-racket effect
 - The red marker dot stays fixed, helping you confirm you're riding with the body
 
+**Poinsot Ellipsoids (bottom - optional, shown with --poinsot):**
+- Shows the beautiful geometric interpretation of torque-free rotation in body-frame ω-space
+- Green ellipsoid: All ω_body states with the same angular momentum magnitude |L|
+- Orange (transparent) ellipsoid: All ω_body states with the same rotational energy E
+- Yellow intersection curve: The only allowed path for ω_body(t) given both constraints
+- Red trail: The actual trajectory of ω_body as it traces the intersection curve
+- The ellipsoids are **fixed** in the body frame (they don't rotate with the body)
+- For unstable rotation about axis 2, ω_body makes large excursions around the curve
+- For stable rotation, ω_body stays near one of the intersection curve's stationary points
+
 **Key Observations:**
 - Rotation about smallest (I₁) or largest (I₃) inertia axes is stable
 - Rotation about the intermediate axis (I₂) is unstable, causing dramatic tumbling
-- The red trails in both frames make precession patterns visible
+- The red trails make precession patterns visible in all three frames
+- The Poinsot construction shows that ω is constrained to move on a 1D curve in 3D ω-space
 - Energy and |L| are conserved (verified numerically with re-orthonormalization)
 
 ## Testing and Verification

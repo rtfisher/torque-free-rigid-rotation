@@ -5,7 +5,7 @@ inertia.
 
 -rtf, 110325, written with the assistance of Claude Code.
 
-We produce TWO synchronized 3D views:
+We produce TWO synchronized 3D views by default, or THREE with --poinsot flag:
 
 1. "Inertial Frame":
    - The box tumbles in space.
@@ -18,6 +18,15 @@ We produce TWO synchronized 3D views:
    - ω_body(t) and L_body(t) are drawn relative to that body.
    - A trail of recent ω_body.
    - The same red dot in body coordinates.
+
+3. "Poinsot Ellipsoids" (optional, shown with --poinsot flag):
+   - Shows ω in BODY FRAME where inertia tensor is diagonal
+   - Two ellipsoids in body-frame ω-space representing the conserved quantities:
+     * Momentum ellipsoid (green): I₁²ω₁² + I₂²ω₂² + I₃²ω₃² = L²
+     * Energy ellipsoid (orange, transparent): I₁ω₁² + I₂ω₂² + I₃ω₃² = 2E
+   - Their intersection curve (yellow) along which ω_body moves.
+   - The trajectory of ω_body(t) (red trail) showing the Poinsot construction.
+   - The ellipsoids are FIXED in the body frame.
 
 Key physics:
 - We solve pure torque-free Euler rigid body dynamics.
@@ -297,6 +306,148 @@ def simulate(I, w0, tmax=10.0, fps=60):
 
 
 # ------------------------------------------------------------
+# Poinsot ellipsoids
+# ------------------------------------------------------------
+
+def make_ellipsoid_surface(semi_axes, resolution=30):
+    """
+    Generate surface mesh for an ellipsoid centered at origin.
+
+    Parameters
+    ----------
+    semi_axes : array-like (3,)
+        Semi-axis lengths along x, y, z
+    resolution : int
+        Number of grid points along each spherical coordinate
+
+    Returns
+    -------
+    X, Y, Z : (resolution, resolution) arrays
+        Mesh coordinates for the ellipsoid surface
+    """
+    u = np.linspace(0, 2 * np.pi, resolution)
+    v = np.linspace(0, np.pi, resolution)
+
+    a, b, c = semi_axes
+
+    # Parametric sphere
+    x_sphere = np.outer(np.cos(u), np.sin(v))
+    y_sphere = np.outer(np.sin(u), np.sin(v))
+    z_sphere = np.outer(np.ones(np.size(u)), np.cos(v))
+
+    # Scale by semi-axes to get ellipsoid
+    X = a * x_sphere
+    Y = b * y_sphere
+    Z = c * z_sphere
+
+    return X, Y, Z
+
+
+def compute_ellipsoid_intersection(I, L_mag, E, num_points=200):
+    """
+    Compute the intersection curve of the momentum and energy ellipsoids.
+
+    The intersection of:
+    - Momentum ellipsoid: I₁²ω₁² + I₂²ω₂² + I₃²ω₃² = L²
+    - Energy ellipsoid: I₁ω₁² + I₂ω₂² + I₃ω₃² = 2E
+
+    This is a space curve in ω-space that the angular velocity follows.
+
+    Parameters
+    ----------
+    I : array-like (3,)
+        Principal moments of inertia
+    L_mag : float
+        Magnitude of angular momentum
+    E : float
+        Rotational kinetic energy
+    num_points : int
+        Number of points to sample along the curve
+
+    Returns
+    -------
+    curves : list of (N, 3) arrays
+        One or more closed curves representing the intersection.
+        For asymmetric tops, there are typically 1-3 disconnected curves.
+    """
+    I1, I2, I3 = I
+    L2 = L_mag**2
+    E2 = 2 * E
+
+    # The intersection can be computed by parametrizing one component
+    # and solving for the others. We'll use a shooting method:
+    # fix ω3 and solve for ω1, ω2 from the two ellipsoid equations.
+
+    curves = []
+
+    # For each of the three possible orientations, try to find curves
+    # by sweeping one coordinate and solving for the other two
+
+    # Method: For each value of one coordinate (e.g., ω3), solve
+    # the system of two ellipsoid equations for the other two coordinates
+
+    # Determine the range for ω3 from the energy ellipsoid
+    w3_max = np.sqrt(E2 / I3)
+    w3_values = np.linspace(-w3_max, w3_max, num_points)
+
+    curve_points = []
+
+    for w3 in w3_values:
+        # Given w3, solve for w1, w2:
+        # I₁²w₁² + I₂²w₂² = L² - I₃²w₃²
+        # I₁w₁² + I₂w₂² = 2E - I₃w₃²
+
+        rhs_L = L2 - I3**2 * w3**2
+        rhs_E = E2 - I3 * w3**2
+
+        if rhs_L < 0 or rhs_E < 0:
+            continue
+
+        # Now we have:
+        # I₁²w₁² + I₂²w₂² = rhs_L  ... (1)
+        # I₁w₁² + I₂w₂² = rhs_E    ... (2)
+
+        # From (2): w₂² = (rhs_E - I₁w₁²) / I₂
+        # Substitute into (1): I₁²w₁² + I₂² * (rhs_E - I₁w₁²)/I₂ = rhs_L
+        # I₁²w₁² + I₂(rhs_E - I₁w₁²) = rhs_L
+        # I₁²w₁² + I₂*rhs_E - I₂*I₁w₁² = rhs_L
+        # w₁²(I₁² - I₂*I₁) = rhs_L - I₂*rhs_E
+        # w₁² = (rhs_L - I₂*rhs_E) / (I₁² - I₂*I₁)
+        # w₁² = (rhs_L - I₂*rhs_E) / (I₁(I₁ - I₂))
+
+        denom = I1 * (I1 - I2)
+        if abs(denom) < 1e-10:
+            # Degenerate case (I1 ≈ I2), need different approach
+            continue
+
+        w1_sq = (rhs_L - I2 * rhs_E) / denom
+
+        if w1_sq < 0:
+            continue
+
+        w1 = np.sqrt(w1_sq)
+
+        # Now get w2 from equation (2)
+        w2_sq = (rhs_E - I1 * w1_sq) / I2
+
+        if w2_sq < 0:
+            continue
+
+        w2 = np.sqrt(w2_sq)
+
+        # Add all sign combinations (the intersection curve may have multiple branches)
+        for s1 in [1, -1]:
+            for s2 in [1, -1]:
+                point = np.array([s1 * w1, s2 * w2, w3])
+                curve_points.append(point)
+
+    if len(curve_points) > 0:
+        curves.append(np.array(curve_points))
+
+    return curves
+
+
+# ------------------------------------------------------------
 # Animation
 # ------------------------------------------------------------
 
@@ -306,9 +457,10 @@ def animate_rigid_body(I, dims,
                        outfile=None,
                        vecscale=0.2,
                        traillen=100,
-                       dotpos=(0.0, 1.0, 0.0)):
+                       dotpos=(0.0, 1.0, 0.0),
+                       show_poinsot=False):
     """
-    Build a figure with two synchronized subplots:
+    Build a figure with two or three synchronized subplots:
 
     Top: "Inertial Frame"
       - Body tumbles in space.
@@ -316,11 +468,20 @@ def animate_rigid_body(I, dims,
       - Recent ω_space trail (red line).
       - Red marker dot (fixed point on the body) advected through space.
 
-    Bottom: "Body-Centered Frame"
+    Middle: "Body-Centered Frame"
       - Body frozen in body coordinates.
       - ω_body(t), L_body(t) arrows.
       - Recent ω_body trail.
       - Same red dot shown on the body surface.
+
+    Bottom: "Poinsot Ellipsoids" (optional, shown if show_poinsot=True)
+      - Shows ω in BODY FRAME where inertia tensor is diagonal
+      - Two ellipsoids in body-frame ω-space:
+        * Momentum ellipsoid: I₁²ω₁² + I₂²ω₂² + I₃²ω₃² = L² (green)
+        * Energy ellipsoid: I₁ω₁² + I₂ω₂² + I₃ω₃² = 2E (orange, transparent)
+      - Their intersection curve (yellow)
+      - Trail of ω_body(t) showing the path along the intersection (red)
+      - The ellipsoids are FIXED in the body frame
 
     Parameters
     ----------
@@ -343,6 +504,8 @@ def animate_rigid_body(I, dims,
         Fractions of HALF-length along each body axis telling us where to
         paint the red marker. Default (0,1,0) = center of +y face.
         Example: (1,0,0) = center of +x face, (1,1,1) = +corner.
+    show_poinsot : bool
+        If True, show the Poinsot ellipsoids in a third subplot (default: False).
     """
     I = np.array(I, dtype=float)
     dims = np.array(dims, dtype=float)
@@ -371,19 +534,53 @@ def animate_rigid_body(I, dims,
     dot_space0   = R0 @ dot_body
 
     # --------------------------------------------------------
-    # Figure with two stacked 3D subplots
+    # Conditionally compute Poinsot ellipsoids
     # --------------------------------------------------------
-    fig = plt.figure(figsize=(7,10))
-    gs = fig.add_gridspec(2, 1, height_ratios=[1,1])
+    if show_poinsot:
+        # Using initial conditions (conserved throughout motion)
+        w0_body = omega_body_arr[0]
+        L0_body = w0_body * I
+        L_mag = norm(L0_body)
+        E = 0.5 * np.sum(I * w0_body**2)
 
-    ax_inertial = fig.add_subplot(gs[0,0], projection='3d')
-    ax_body     = fig.add_subplot(gs[1,0], projection='3d')
+        # Semi-axes for the two ellipsoids in ω-space
+        # Momentum ellipsoid: I₁²ω₁² + I₂²ω₂² + I₃²ω₃² = L²
+        # Rewrite as: (ω₁/(L/I₁))² + (ω₂/(L/I₂))² + (ω₃/(L/I₃))² = 1
+        momentum_semiaxes = L_mag / I  # [L/I₁, L/I₂, L/I₃]
 
-    def setup_ax(ax, title):
+        # Energy ellipsoid: I₁ω₁² + I₂ω₂² + I₃ω₃² = 2E
+        # Rewrite as: (ω₁/√(2E/I₁))² + (ω₂/√(2E/I₂))² + (ω₃/√(2E/I₃))² = 1
+        energy_semiaxes = np.sqrt(2 * E / I)  # [√(2E/I₁), √(2E/I₂), √(2E/I₃)]
+
+        # Generate ellipsoid surfaces
+        X_momentum, Y_momentum, Z_momentum = make_ellipsoid_surface(momentum_semiaxes, resolution=30)
+        X_energy, Y_energy, Z_energy = make_ellipsoid_surface(energy_semiaxes, resolution=30)
+
+        # Compute intersection curve
+        intersection_curves = compute_ellipsoid_intersection(I, L_mag, E, num_points=200)
+
+    # --------------------------------------------------------
+    # Figure with two or three stacked 3D subplots
+    # --------------------------------------------------------
+    if show_poinsot:
+        fig = plt.figure(figsize=(7,14))
+        gs = fig.add_gridspec(3, 1, height_ratios=[1,1,1])
+        ax_inertial = fig.add_subplot(gs[0,0], projection='3d')
+        ax_body     = fig.add_subplot(gs[1,0], projection='3d')
+        ax_poinsot  = fig.add_subplot(gs[2,0], projection='3d')
+    else:
+        fig = plt.figure(figsize=(7,10))
+        gs = fig.add_gridspec(2, 1, height_ratios=[1,1])
+        ax_inertial = fig.add_subplot(gs[0,0], projection='3d')
+        ax_body     = fig.add_subplot(gs[1,0], projection='3d')
+        ax_poinsot  = None
+
+    def setup_ax(ax, title, lim=None):
         ax.set_box_aspect([1,1,1])
         ax.view_init(elev=20, azim=30)
-        max_dim = max(dims)
-        lim = 1.8 * max_dim
+        if lim is None:
+            max_dim = max(dims)
+            lim = 1.8 * max_dim
         ax.set_xlim(-lim, lim)
         ax.set_ylim(-lim, lim)
         ax.set_zlim(-lim, lim)
@@ -394,6 +591,11 @@ def animate_rigid_body(I, dims,
 
     setup_ax(ax_inertial, "Inertial Frame")
     setup_ax(ax_body,     "Body-Centered Frame")
+
+    if show_poinsot:
+        # For Poinsot frame, use the larger of the two ellipsoid extents
+        poinsot_lim = 1.2 * max(np.max(momentum_semiaxes), np.max(energy_semiaxes))
+        setup_ax(ax_poinsot,  "Poinsot Ellipsoids (ω-space)", lim=poinsot_lim)
 
     # --------------------------------------------------------
     # Inertial frame artists
@@ -508,17 +710,72 @@ def animate_rigid_body(I, dims,
     )
 
     # --------------------------------------------------------
+    # Poinsot frame artists (optional)
+    # --------------------------------------------------------
+    if show_poinsot:
+        # Draw the two ellipsoids
+        momentum_surf = ax_poinsot.plot_surface(
+            X_momentum, Y_momentum, Z_momentum,
+            color='green', alpha=0.3, edgecolor='none'
+        )
+
+        energy_surf = ax_poinsot.plot_surface(
+            X_energy, Y_energy, Z_energy,
+            color='orange', alpha=0.25, edgecolor='none'
+        )
+
+        # Draw the intersection curve(s)
+        intersection_artists = []
+        for curve in intersection_curves:
+            if len(curve) > 0:
+                line, = ax_poinsot.plot(
+                    curve[:, 0], curve[:, 1], curve[:, 2],
+                    color='yellow', linewidth=2, alpha=0.7
+                )
+                intersection_artists.append(line)
+
+        # ω trail in Poinsot frame (ω_body trajectory)
+        trail_line_poinsot, = ax_poinsot.plot([], [], [], lw=2, color='red', alpha=0.7)
+        w_poinsot_history = []
+
+        # Current ω point
+        w_point_poinsot, = ax_poinsot.plot(
+            [w0_body[0]], [w0_body[1]], [w0_body[2]],
+            'o', color='red', markersize=8
+        )
+
+        # Add labels to Poinsot frame
+        ax_poinsot.text2D(0.05, 0.95, r'Green: $L^2$ ellipsoid', transform=ax_poinsot.transAxes,
+                          color='green', fontsize=10)
+        ax_poinsot.text2D(0.05, 0.90, r'Orange: $2E$ ellipsoid', transform=ax_poinsot.transAxes,
+                          color='orange', fontsize=10)
+        ax_poinsot.text2D(0.05, 0.85, r'Red: $\omega(t)$ trajectory', transform=ax_poinsot.transAxes,
+                          color='red', fontsize=10)
+    else:
+        # Placeholder values when Poinsot is not shown
+        momentum_surf = None
+        energy_surf = None
+        intersection_artists = []
+        trail_line_poinsot = None
+        w_poinsot_history = []
+        w_point_poinsot = None
+
+    # --------------------------------------------------------
     # Animation functions
     # --------------------------------------------------------
 
     def init():
-        return (box_coll_inertial, w_quiv_space, L_quiv_space,
-                w_label_space, L_label_space, trail_line_space, dot_point_space,
-                box_coll_body, w_quiv_body, L_quiv_body,
-                w_label_body, L_label_body, trail_line_body, dot_point_body)
+        artists = [box_coll_inertial, w_quiv_space, L_quiv_space,
+                   w_label_space, L_label_space, trail_line_space, dot_point_space,
+                   box_coll_body, w_quiv_body, L_quiv_body,
+                   w_label_body, L_label_body, trail_line_body, dot_point_body]
+        if show_poinsot:
+            artists.extend([momentum_surf, energy_surf, trail_line_poinsot, w_point_poinsot])
+            artists.extend(intersection_artists)
+        return tuple(artists)
 
     def update(frame):
-        nonlocal w_space_history, w_body_history
+        nonlocal w_space_history, w_body_history, w_poinsot_history
 
         R = R_t[frame]                 # (3,3)
         w_body = omega_body_arr[frame] # (3,)
@@ -590,10 +847,28 @@ def animate_rigid_body(I, dims,
 
         # dot_point_body doesn't move in body coords
 
-        return (box_coll_inertial, w_quiv_space, L_quiv_space,
-                w_label_space, L_label_space, trail_line_space, dot_point_space,
-                box_coll_body, w_quiv_body, L_quiv_body,
-                w_label_body, L_label_body, trail_line_body, dot_point_body)
+        # ----- Poinsot frame update -----
+        if show_poinsot:
+            # Update the ω trajectory in ω-space
+            w_poinsot_history.append(w_body.copy())
+            if len(w_poinsot_history) > traillen:
+                w_poinsot_history = w_poinsot_history[-traillen:]
+            w_hist_poinsot_arr = np.array(w_poinsot_history)
+            trail_line_poinsot.set_data(w_hist_poinsot_arr[:,0], w_hist_poinsot_arr[:,1])
+            trail_line_poinsot.set_3d_properties(w_hist_poinsot_arr[:,2])
+
+            # Update current ω point
+            w_point_poinsot.set_data([w_body[0]], [w_body[1]])
+            w_point_poinsot.set_3d_properties([w_body[2]])
+
+        artists = [box_coll_inertial, w_quiv_space, L_quiv_space,
+                   w_label_space, L_label_space, trail_line_space, dot_point_space,
+                   box_coll_body, w_quiv_body, L_quiv_body,
+                   w_label_body, L_label_body, trail_line_body, dot_point_body]
+        if show_poinsot:
+            artists.extend([momentum_surf, energy_surf, trail_line_poinsot, w_point_poinsot])
+            artists.extend(intersection_artists)
+        return tuple(artists)
 
     anim = animation.FuncAnimation(
         fig,
@@ -766,6 +1041,11 @@ def parse_args():
         )
     )
 
+    p.add_argument(
+        "--poinsot", action="store_true",
+        help="Show Poinsot ellipsoids in a third subplot (default: False)."
+    )
+
     return p.parse_args()
 
 
@@ -807,7 +1087,8 @@ def main():
         outfile=args.outfile,
         vecscale=args.vecscale,
         traillen=args.traillen,
-        dotpos=args.dotpos
+        dotpos=args.dotpos,
+        show_poinsot=args.poinsot
     )
 
 

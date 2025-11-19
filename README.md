@@ -30,6 +30,8 @@ python rigid_rotor.py [flags]
 | `--outfile` | string | — | Optional MP4 filename to save animation (requires ffmpeg). |
 | `--vecscale` | float | `0.2` | Scales the length of the ω and L arrows. |
 | `--traillen` | int | `100` | Number of recent frames used for the ω trail (red line showing ω's path in space). |
+| `--dotpos X Y Z` | floats | `0 1 0` | Location of the red marker dot in body coordinates as fractions of half the box size. |
+| `--poinsot` | flag | — | Show Poinsot ellipsoids in a third subplot for geometric interpretation in ω-space. |
 
 ### Example usages
 
@@ -39,6 +41,9 @@ python rigid_rotor.py --stable1
 
 # Tennis-racket instability (middle axis)
 python rigid_rotor.py --unstable --tmax 15
+
+# Show Poinsot ellipsoids visualization (3 frames instead of 2)
+python rigid_rotor.py --unstable --tmax 15 --poinsot
 
 # Custom initial spin
 python rigid_rotor.py --w0 0 10 0 --I 2 3 4
@@ -100,19 +105,49 @@ Because of numerical drift, the body axes are periodically re-orthonormalized to
 
 ## 2. Visualization
 
-The animation shows:
+### 2.1 Standard Two-Frame View (default)
 
+The animation shows **two synchronized 3D subplots**:
+
+**Top Frame: Inertial Frame**
 - The rigid body, drawn as a rectangular box aligned with its principal axes, rotated into the space frame every frame.
 - Hidden surfaces approximated via simple z-sorting.
 - The angular velocity vector **ω** drawn in red as a 3D arrow with an arrowhead.
 - The angular momentum vector **L** drawn in green as a 3D arrow with an arrowhead.
 - A red trail that shows the recent path of **ω** in space over time. The length of that trail (number of frames kept) is set by `--traillen`.
+- A red marker dot painted on the body surface to track material rotation.
+
+**Bottom Frame: Body-Centered Frame**
+- The body frozen in body coordinates (riding along with the rotation).
+- **ω_body(t)** and **L_body(t)** vectors shown in the body frame.
+- Red trail showing the path of **ω** in body coordinates.
+- The red marker dot at a fixed position in body coordinates (set by `--dotpos`).
+
+### 2.2 Three-Frame View with Poinsot Ellipsoids (`--poinsot`)
+
+When the `--poinsot` flag is used, a **third subplot** is added showing the **Poinsot construction** — a beautiful geometric interpretation of torque-free rotation in ω-space:
+
+**Third Frame: Poinsot Ellipsoids (ω in body frame)**
+- **Green ellipsoid**: The momentum ellipsoid representing all ω_body states with the same angular momentum magnitude: `I₁²ω₁² + I₂²ω₂² + I₃²ω₃² = L²`
+- **Orange ellipsoid** (transparent): The energy ellipsoid representing all ω_body states with the same rotational energy: `I₁ω₁² + I₂ω₂² + I₃ω₃² = 2E`
+- **Yellow curve**: The intersection of the two ellipsoids — the only path ω_body(t) can follow given both conservation laws
+- **Red trail**: The actual trajectory of ω_body as it traces the intersection curve
+- **Red dot**: Current position of ω_body in body-frame ω-space
+
+**Note**: This frame shows ω in **body coordinates** where the inertia tensor is diagonal, making the ellipsoids fixed in this representation.
+
+This frame reveals:
+- ω_body is constrained to move on a 1D curve in 3D body-frame ω-space
+- The ellipsoids are fixed in the body frame (they don't rotate)
+- For stable rotation, ω_body stays near stationary points on the curve
+- For unstable rotation (intermediate axis), ω_body makes large excursions around the curve
 
 ### Interpretation:
 
 - **L** (green) stays nearly fixed in direction (since there is no external torque).
 - **ω** (red) moves relative to **L**, except for pure principal-axis rotation.
 - The red trail makes it easy to see how **ω** precesses or flips relative to **L**, revealing the tennis-racket instability.
+- The Poinsot view shows why ω follows the specific path it does: it's the intersection of two conserved-quantity surfaces.
 
 ## 3. Examples
 
@@ -132,11 +167,19 @@ python rigid_rotor.py --I 2 5 9 --w0 0 30 0
 
 ## 4. Code Structure
 
+### Core Physics
 - **`euler_rhs()`**: Implements Euler's equations for dω/dt in the body frame.
 - **`rhs_full()`**: Evolves both the angular velocity in the body frame and the body axes in the space frame.
 - **`simulate()`**: Uses scipy.integrate.solve_ivp to integrate the ODEs, returning arrays of ω(t) and orientation.
-- **`animate_rigid_body()`**: Builds the 3D animation (box, arrows, and ω trail).
+
+### Visualization
+- **`animate_rigid_body()`**: Builds the 2D or 3D animation (box, arrows, and ω trail).
+- **`make_ellipsoid_surface()`**: Generates surface meshes for the Poinsot ellipsoids.
+- **`compute_ellipsoid_intersection()`**: Computes the intersection curve of the momentum and energy ellipsoids in ω-space.
+
+### Utilities
 - **`build_initial_w()`**: Selects the initial angular velocity from either explicit input (`--w0`) or preset flags (`--stable1`, `--unstable`, `--stable3`).
+- **`calculate_dims_from_I()`**: Auto-calculates box dimensions from moments of inertia for a uniform-density box.
 - **`parse_args()`**: Defines and parses all command-line flags.
 - **`main()`**: Integrates and animates the result.
 

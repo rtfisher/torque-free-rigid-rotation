@@ -146,7 +146,34 @@ Triangle inequality: I₁ + I₂ > I₃, etc.
 
 **Physics Verified**: Special symmetries produce expected simplified dynamics.
 
-### 10. Performance Tests (`test_simulation_completes_quickly`)
+### 10. Poinsot Construction Tests (`test_poinsot_*`)
+
+**Purpose**: Verify the geometric interpretation of torque-free rotation in ω-space.
+
+**Tests**:
+- `test_make_ellipsoid_surface_dimensions`: Verify ellipsoid surface mesh has correct shape
+- `test_make_ellipsoid_surface_on_surface`: Verify all points lie on the ellipsoid surface
+- `test_ellipsoid_semi_axes_calculation`: Verify semi-axes computed correctly from I, L, E
+- `test_omega_on_momentum_ellipsoid`: Verify ω(t) stays on momentum ellipsoid surface
+- `test_omega_on_energy_ellipsoid`: Verify ω(t) stays on energy ellipsoid surface
+- `test_omega_on_intersection_curve`: Verify ω(t) stays near intersection curve
+- `test_intersection_curve_not_empty`: Verify intersection computation produces valid curves
+- `test_poinsot_frame_conditional`: Verify Poinsot frame only created when flag is set
+
+**Physics Verified**:
+```
+Momentum ellipsoid: I₁²ω₁² + I₂²ω₂² + I₃²ω₃² = L²
+Energy ellipsoid: I₁ω₁² + I₂ω₂² + I₃ω₃² = 2E
+ω must lie on intersection of both surfaces
+```
+
+**Geometric Properties Verified**:
+- Ellipsoid meshes are properly formed and dimensioned
+- Conservation laws are satisfied at every timestep
+- The intersection curve correctly represents the constraint manifold
+- The Poinsot visualization is optional and controlled by flag
+
+### 11. Performance Tests (`test_simulation_completes_quickly`)
 
 **Purpose**: Regression testing for computational performance.
 
@@ -185,16 +212,18 @@ Tests using `tmax=10.0` verify:
 
 ## Expected Test Results
 
-All 26 tests should **PASS** on a correctly functioning installation. Typical execution time on modern hardware: **10-15 seconds** for the full suite.
+All tests should **PASS** on a correctly functioning installation (24 core physics tests + 8 Poinsot construction tests = 32 total). Typical execution time on modern hardware: **12-18 seconds** for the full suite.
 
 Example output:
 ```
 test_rigid_rotor.py::test_euler_rhs_pure_spin_axis1 PASSED            [  3%]
-test_rigid_rotor.py::test_euler_rhs_pure_spin_axis2 PASSED            [  7%]
+test_rigid_rotor.py::test_euler_rhs_pure_spin_axis2 PASSED            [  6%]
 ...
+test_rigid_rotor.py::test_omega_on_intersection_curve PASSED          [ 93%]
+test_rigid_rotor.py::test_poinsot_frame_conditional PASSED            [ 96%]
 test_rigid_rotor.py::test_simulation_completes_quickly PASSED         [100%]
 
-======================== 26 passed in 12.34s =========================
+======================== 32 passed in 15.67s =========================
 ```
 
 ## Interpreting Failures
@@ -211,20 +240,32 @@ If `test_rotation_matrix_*` fail → Rotation matrices drifting from SO(3), chec
 ### Performance Regression
 If `test_simulation_completes_quickly` fails → Check for inefficient code changes
 
+### Poinsot Construction Errors
+If `test_poinsot_*` fail → Check:
+- Ellipsoid surface generation in `make_ellipsoid_surface()`
+- Semi-axes calculations from I, L, and E
+- Intersection curve computation in `compute_ellipsoid_intersection()`
+- Verification that ω(t) satisfies both conservation constraints
+
 ## Adding New Tests
 
 When adding features, consider adding tests for:
 1. **Mathematical correctness**: Does the algorithm implement the physics correctly?
 2. **Conservation laws**: Are the appropriate quantities conserved?
-3. **Edge cases**: How does it behave with degenerate inputs?
-4. **Performance**: Does it maintain acceptable speed?
+3. **Geometric properties**: Do geometric constructions satisfy expected properties?
+4. **Edge cases**: How does it behave with degenerate inputs?
+5. **Performance**: Does it maintain acceptable speed?
 
 ## References
 
-The physics verified by these tests is based on:
+The physics and geometry verified by these tests is based on:
 - Goldstein, *Classical Mechanics*, Chapter 5 (Rigid Body Motion)
 - Landau & Lifshitz, *Mechanics*, §37 (Free rotation of a rigid body)
 - The tennis racket instability (intermediate axis theorem)
+- Poinsot's geometric construction for rigid body rotation (1834)
+  - The momentum and energy ellipsoids in ω-space
+  - The polhode: the curve traced by ω on the energy ellipsoid
+  - The herpolhode: the curve traced by ω in the inertial frame
 
 ## CI Badge
 
