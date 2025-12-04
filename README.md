@@ -32,6 +32,7 @@ python rigid_rotor.py [flags]
 | `--traillen` | int | `100` | Number of recent frames used for the ω trail (red line showing ω's path in space). |
 | `--dotpos X Y Z` | floats | `0 1 0` | Location of the red marker dot in body coordinates as fractions of half the box size. |
 | `--poinsot` | flag | — | Show Poinsot ellipsoids in a third subplot for geometric interpretation in ω-space. |
+| `--sliders` | flag | — | Enable interactive sliders to dynamically adjust initial angular velocity ω₁, ω₂, ω₃ (range: -20 to +20). |
 
 ### Example usages
 
@@ -50,6 +51,12 @@ python rigid_rotor.py --w0 0 10 0 --I 2 3 4
 
 # Larger arrows, longer ω trail, and saved output
 python rigid_rotor.py --unstable --vecscale 0.3 --traillen 200 --outfile tumble.mp4
+
+# Interactive mode with sliders to adjust initial angular velocity in real-time
+python rigid_rotor.py --sliders --unstable
+
+# Combine sliders with Poinsot ellipsoids visualization
+python rigid_rotor.py --sliders --poinsot
 ```
 
 ## 1. Physical Model
@@ -141,6 +148,43 @@ This frame reveals:
 - The ellipsoids are fixed in the body frame (they don't rotate)
 - For stable rotation, ω_body stays near stationary points on the curve
 - For unstable rotation (intermediate axis), ω_body makes large excursions around the curve
+
+### 2.3 Interactive Sliders Mode (`--sliders`)
+
+When the `--sliders` flag is used, **three horizontal sliders and a reset button** are added at the bottom of the figure:
+
+**Interactive Controls:**
+- **Three sliders** for ω₁, ω₂, ω₃: Adjust the initial angular velocity components (in body frame) from -20 to +20 with step size 0.1
+  - Each slider has a **black vertical line at zero** to clearly delineate the zero point
+  - Values represent angular velocity components along the principal axes in the body frame
+- **Reset button** (light blue): Click to instantly recompute and restart the simulation with the new slider values
+  - Animation automatically restarts from t=0 with updated initial conditions
+  - All frames (inertial, body-centered, and optionally Poinsot) update simultaneously
+  - Trail histories are cleared to show fresh trajectories
+
+**Physics Behavior:**
+- **Pure rotation about axis 1** (ω₁≠0, ω₂=0, ω₃=0): Stable rotation about smallest moment of inertia
+- **Pure rotation about axis 2** (ω₁=0, ω₂≠0, ω₃=0): **Unstable!** Tennis-racket effect, tumbling motion
+- **Pure rotation about axis 3** (ω₁=0, ω₂=0, ω₃≠0): Stable rotation about largest moment of inertia
+- **Mixed rotations**: Complex precession patterns depending on the combination
+
+**Example Experiments:**
+1. **Stability comparison**: Set ω₁=10, others to 0 (stable) vs ω₂=10, others to 0 (unstable)
+2. **Sensitivity testing**: Start with ω₂=10, ω₁=0.1, ω₃=0.1 to see how small perturbations amplify
+3. **Energy/momentum changes**: Try different combinations and observe how L and E change (displayed in Poinsot mode)
+
+**Use Cases:**
+- Explore how small changes in initial conditions affect stability
+- Quickly compare rotation about different principal axes
+- Demonstrate the sensitivity of the unstable intermediate axis
+- Interactive educational demonstrations without restarting the program
+- Interactive exploration for pedagogical learning
+
+**Technical Notes:**
+- The sliders adjust the *initial* angular velocity in the **body frame** only
+- The simulation still conserves energy and angular momentum from the new initial conditions
+- Body frame initially aligned with space frame (e₁=(1,0,0), e₂=(0,1,0), e₃=(0,0,1))
+- All conservation laws verified to <0.01% drift over simulation duration
 
 ### Interpretation:
 

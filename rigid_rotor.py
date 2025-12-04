@@ -49,6 +49,7 @@ Command-line features:
 - --outfile to save MP4 (requires ffmpeg).
 - --vecscale to scale ω and L arrows.
 - --traillen to control how long the ω trails are.
+- --sliders to enable interactive sliders for dynamically adjusting initial angular velocity.
 
 Dependencies: numpy, scipy, matplotlib
 """
@@ -58,6 +59,7 @@ import numpy as np
 from numpy.linalg import norm
 import matplotlib.pyplot as plt
 from matplotlib import animation
+from matplotlib.widgets import Slider, Button
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 from scipy.integrate import solve_ivp
 
@@ -458,7 +460,10 @@ def animate_rigid_body(I, dims,
                        vecscale=0.2,
                        traillen=100,
                        dotpos=(0.0, 1.0, 0.0),
-                       show_poinsot=False):
+                       show_poinsot=False,
+                       w0_initial=None,
+                       tmax=10.0,
+                       enable_sliders=False):
     """
     Build a figure with two or three synchronized subplots:
 
@@ -506,12 +511,25 @@ def animate_rigid_body(I, dims,
         Example: (1,0,0) = center of +x face, (1,1,1) = +corner.
     show_poinsot : bool
         If True, show the Poinsot ellipsoids in a third subplot (default: False).
+    w0_initial : array-like (3,) or None
+        Initial angular velocity for slider initialization. Required if enable_sliders=True.
+    tmax : float
+        Total simulation time (default: 10.0). Required if enable_sliders=True.
+    enable_sliders : bool
+        If True, add interactive sliders to adjust initial angular velocity (default: False).
     """
     I = np.array(I, dtype=float)
     dims = np.array(dims, dtype=float)
     dotpos = np.array(dotpos, dtype=float)
 
     nframes = R_t.shape[0]
+
+    # Store simulation data in a mutable container for slider reset capability
+    sim_data = {
+        'omega_body_arr': omega_body_arr.copy(),
+        'R_t': R_t.copy(),
+        'nframes': nframes
+    }
 
     # Geometry in BODY coords
     verts_body, faces = make_box(dims)
@@ -521,59 +539,94 @@ def animate_rigid_body(I, dims,
     # (0,1,0) -> (0, +by/2, 0), i.e. middle of +y face.
     dot_body = 0.5 * dims * dotpos
 
-    # Compute angular momentum in body frame: L_body = I * ω_body (componentwise)
-    L_body_arr = omega_body_arr * I[np.newaxis, :]  # (nframes,3)
+    # Helper function to compute derived arrays from simulation data
+    def compute_derived_data(omega_body_arr, R_t):
+        """Compute L_body, omega_space, L_space from simulation outputs."""
+        L_body_arr = omega_body_arr * I[np.newaxis, :]  # (nframes,3)
+        omega_space_arr = np.einsum('nij,nj->ni', R_t, omega_body_arr)  # (nframes,3)
+        L_space_arr = np.einsum('nij,nj->ni', R_t, L_body_arr)  # (nframes,3)
+        return L_body_arr, omega_space_arr, L_space_arr
 
-    # Convert ω_body and L_body to space frame for inertial view
-    omega_space_arr = np.einsum('nij,nj->ni', R_t, omega_body_arr)  # (nframes,3)
-    L_space_arr     = np.einsum('nij,nj->ni', R_t, L_body_arr)      # (nframes,3)
+    # Compute angular momentum in body frame: L_body = I * ω_body (componentwise)
+    # Store derived arrays in sim_data as well for easy updating
+    L_body_arr, omega_space_arr, L_space_arr = compute_derived_data(
+        sim_data['omega_body_arr'], sim_data['R_t']
+    )
+    sim_data['L_body_arr'] = L_body_arr
+    sim_data['omega_space_arr'] = omega_space_arr
+    sim_data['L_space_arr'] = L_space_arr
 
     # Frame 0 for initialization
-    R0 = R_t[0]
+    R0 = sim_data['R_t'][0]
     verts_world0 = body_to_space(R0, verts_body)
     dot_space0   = R0 @ dot_body
 
     # --------------------------------------------------------
     # Conditionally compute Poinsot ellipsoids
     # --------------------------------------------------------
-    if show_poinsot:
-        # Using initial conditions (conserved throughout motion)
+    # Helper function to compute Poinsot ellipsoid data
+    def compute_poinsot_data(omega_body_arr):
+        """Compute ellipsoid surfaces and intersection curves."""
         w0_body = omega_body_arr[0]
         L0_body = w0_body * I
         L_mag = norm(L0_body)
         E = 0.5 * np.sum(I * w0_body**2)
 
-        # Semi-axes for the two ellipsoids in ω-space
-        # Momentum ellipsoid: I₁²ω₁² + I₂²ω₂² + I₃²ω₃² = L²
-        # Rewrite as: (ω₁/(L/I₁))² + (ω₂/(L/I₂))² + (ω₃/(L/I₃))² = 1
-        momentum_semiaxes = L_mag / I  # [L/I₁, L/I₂, L/I₃]
+        momentum_semiaxes = L_mag / I
+        energy_semiaxes = np.sqrt(2 * E / I)
 
-        # Energy ellipsoid: I₁ω₁² + I₂ω₂² + I₃ω₃² = 2E
-        # Rewrite as: (ω₁/√(2E/I₁))² + (ω₂/√(2E/I₂))² + (ω₃/√(2E/I₃))² = 1
-        energy_semiaxes = np.sqrt(2 * E / I)  # [√(2E/I₁), √(2E/I₂), √(2E/I₃)]
-
-        # Generate ellipsoid surfaces
         X_momentum, Y_momentum, Z_momentum = make_ellipsoid_surface(momentum_semiaxes, resolution=30)
         X_energy, Y_energy, Z_energy = make_ellipsoid_surface(energy_semiaxes, resolution=30)
 
-        # Compute intersection curve
         intersection_curves = compute_ellipsoid_intersection(I, L_mag, E, num_points=200)
+
+        return {
+            'X_momentum': X_momentum, 'Y_momentum': Y_momentum, 'Z_momentum': Z_momentum,
+            'X_energy': X_energy, 'Y_energy': Y_energy, 'Z_energy': Z_energy,
+            'intersection_curves': intersection_curves,
+            'momentum_semiaxes': momentum_semiaxes,
+            'energy_semiaxes': energy_semiaxes
+        }
+
+    if show_poinsot:
+        # Using initial conditions (conserved throughout motion)
+        poinsot_data = compute_poinsot_data(sim_data['omega_body_arr'])
+        sim_data['poinsot'] = poinsot_data
+
+        # Extract computed ellipsoid data
+        X_momentum = poinsot_data['X_momentum']
+        Y_momentum = poinsot_data['Y_momentum']
+        Z_momentum = poinsot_data['Z_momentum']
+        X_energy = poinsot_data['X_energy']
+        Y_energy = poinsot_data['Y_energy']
+        Z_energy = poinsot_data['Z_energy']
+        intersection_curves = poinsot_data['intersection_curves']
+        momentum_semiaxes = poinsot_data['momentum_semiaxes']
+        energy_semiaxes = poinsot_data['energy_semiaxes']
 
     # --------------------------------------------------------
     # Figure with two or three stacked 3D subplots
     # --------------------------------------------------------
-    if show_poinsot:
-        fig = plt.figure(figsize=(7,14))
-        gs = fig.add_gridspec(3, 1, height_ratios=[1,1,1])
-        ax_inertial = fig.add_subplot(gs[0,0], projection='3d')
-        ax_body     = fig.add_subplot(gs[1,0], projection='3d')
-        ax_poinsot  = fig.add_subplot(gs[2,0], projection='3d')
+    # Adjust figure size and layout based on whether we're showing sliders
+    if enable_sliders:
+        if show_poinsot:
+            fig = plt.figure(figsize=(7,15.5))
+            # Leave space at bottom for sliders (about 1.5 units)
+            gs = fig.add_gridspec(3, 1, height_ratios=[1,1,1], bottom=0.12, top=0.98)
+        else:
+            fig = plt.figure(figsize=(7,11.5))
+            gs = fig.add_gridspec(2, 1, height_ratios=[1,1], bottom=0.15, top=0.98)
     else:
-        fig = plt.figure(figsize=(7,10))
-        gs = fig.add_gridspec(2, 1, height_ratios=[1,1])
-        ax_inertial = fig.add_subplot(gs[0,0], projection='3d')
-        ax_body     = fig.add_subplot(gs[1,0], projection='3d')
-        ax_poinsot  = None
+        if show_poinsot:
+            fig = plt.figure(figsize=(7,14))
+            gs = fig.add_gridspec(3, 1, height_ratios=[1,1,1])
+        else:
+            fig = plt.figure(figsize=(7,10))
+            gs = fig.add_gridspec(2, 1, height_ratios=[1,1])
+
+    ax_inertial = fig.add_subplot(gs[0,0], projection='3d')
+    ax_body     = fig.add_subplot(gs[1,0], projection='3d')
+    ax_poinsot  = fig.add_subplot(gs[2,0], projection='3d') if show_poinsot else None
 
     def setup_ax(ax, title, lim=None):
         ax.set_box_aspect([1,1,1])
@@ -761,6 +814,122 @@ def animate_rigid_body(I, dims,
         w_point_poinsot = None
 
     # --------------------------------------------------------
+    # Interactive Sliders and Reset Button (optional)
+    # --------------------------------------------------------
+    if enable_sliders:
+        if w0_initial is None:
+            raise ValueError("w0_initial must be provided when enable_sliders=True")
+
+        # Create slider axes at the bottom of the figure
+        slider_left = 0.15
+        slider_width = 0.7
+        slider_height = 0.02
+        slider_spacing = 0.03
+
+        ax_slider_w1 = fig.add_axes([slider_left, 0.08, slider_width, slider_height])
+        ax_slider_w2 = fig.add_axes([slider_left, 0.05, slider_width, slider_height])
+        ax_slider_w3 = fig.add_axes([slider_left, 0.02, slider_width, slider_height])
+
+        # Create sliders with initial values from w0_initial
+        slider_w1 = Slider(ax_slider_w1, r'$\omega_1$', -20.0, 20.0,
+                          valinit=w0_initial[0], valstep=0.1)
+        slider_w2 = Slider(ax_slider_w2, r'$\omega_2$', -20.0, 20.0,
+                          valinit=w0_initial[1], valstep=0.1)
+        slider_w3 = Slider(ax_slider_w3, r'$\omega_3$', -20.0, 20.0,
+                          valinit=w0_initial[2], valstep=0.1)
+
+        # Add vertical lines at zero for each slider to make zero more visible
+        for ax_slider in [ax_slider_w1, ax_slider_w2, ax_slider_w3]:
+            ax_slider.axvline(0, color='black', linewidth=2.0, linestyle='-', alpha=0.6, zorder=10)
+
+        # Create reset button
+        ax_button = fig.add_axes([0.45, 0.11, 0.1, 0.02])
+        button_reset = Button(ax_button, 'Reset', color='lightblue', hovercolor='skyblue')
+
+        # Store reference to the animation object so we can restart it
+        anim_ref = {'anim': None}
+
+        def reset_simulation(event):
+            """Callback for reset button: recompute simulation with new w0."""
+            # Get new initial conditions from sliders (in BODY FRAME)
+            # These are the angular velocity components along the principal axes
+            new_w0 = np.array([slider_w1.val, slider_w2.val, slider_w3.val], dtype=float)
+
+            # Recompute simulation
+            _, new_omega_body_arr, new_R_t = simulate(I, new_w0, tmax=tmax, fps=fps)
+
+            # Update simulation data in place
+            sim_data['omega_body_arr'] = new_omega_body_arr
+            sim_data['R_t'] = new_R_t
+            sim_data['nframes'] = new_R_t.shape[0]
+
+            # Recompute derived arrays
+            new_L_body_arr, new_omega_space_arr, new_L_space_arr = compute_derived_data(
+                new_omega_body_arr, new_R_t
+            )
+            sim_data['L_body_arr'] = new_L_body_arr
+            sim_data['omega_space_arr'] = new_omega_space_arr
+            sim_data['L_space_arr'] = new_L_space_arr
+
+            # Recompute Poinsot ellipsoids if needed
+            if show_poinsot:
+                new_poinsot_data = compute_poinsot_data(new_omega_body_arr)
+                sim_data['poinsot'] = new_poinsot_data
+
+                # Update Poinsot ellipsoid surfaces
+                momentum_surf._vec = np.array([
+                    new_poinsot_data['X_momentum'],
+                    new_poinsot_data['Y_momentum'],
+                    new_poinsot_data['Z_momentum']
+                ])
+                energy_surf._vec = np.array([
+                    new_poinsot_data['X_energy'],
+                    new_poinsot_data['Y_energy'],
+                    new_poinsot_data['Z_energy']
+                ])
+
+                # Update intersection curves
+                for artist in intersection_artists:
+                    artist.remove()
+                intersection_artists.clear()
+                for curve in new_poinsot_data['intersection_curves']:
+                    if len(curve) > 0:
+                        line, = ax_poinsot.plot(
+                            curve[:, 0], curve[:, 1], curve[:, 2],
+                            color='yellow', linewidth=2, alpha=0.7
+                        )
+                        intersection_artists.append(line)
+
+            # Clear history for trails
+            w_space_history.clear()
+            w_body_history.clear()
+            if show_poinsot:
+                w_poinsot_history.clear()
+
+            # Restart animation from frame 0
+            if anim_ref['anim'] is not None:
+                anim_ref['anim'].event_source.stop()
+
+                # Reset to initial state by calling init function
+                init()
+
+                # Reset the frame generator to start from 0
+                # _iter_gen must be a callable that returns an iterator
+                anim_ref['anim']._iter_gen = lambda: iter(range(sim_data['nframes']))
+
+                # Restart the animation
+                anim_ref['anim'].event_source.start()
+
+            fig.canvas.draw_idle()
+
+        button_reset.on_clicked(reset_simulation)
+    else:
+        slider_w1 = None
+        slider_w2 = None
+        slider_w3 = None
+        button_reset = None
+
+    # --------------------------------------------------------
     # Animation functions
     # --------------------------------------------------------
 
@@ -777,11 +946,12 @@ def animate_rigid_body(I, dims,
     def update(frame):
         nonlocal w_space_history, w_body_history, w_poinsot_history
 
-        R = R_t[frame]                 # (3,3)
-        w_body = omega_body_arr[frame] # (3,)
-        L_body = w_body * I            # componentwise
-        w_space = omega_space_arr[frame]
-        L_space = L_space_arr[frame]
+        # Read from sim_data to support dynamic updates from sliders
+        R = sim_data['R_t'][frame]                 # (3,3)
+        w_body = sim_data['omega_body_arr'][frame] # (3,)
+        L_body = w_body * I                        # componentwise
+        w_space = sim_data['omega_space_arr'][frame]
+        L_space = sim_data['L_space_arr'][frame]
 
         # ----- Inertial frame update -----
         verts_world = body_to_space(R, verts_body)
@@ -878,6 +1048,10 @@ def animate_rigid_body(I, dims,
         interval=1000.0/fps,
         blit=False
     )
+
+    # Store animation reference for slider reset functionality
+    if enable_sliders:
+        anim_ref['anim'] = anim
 
     if outfile is not None:
         try:
@@ -1046,6 +1220,11 @@ def parse_args():
         help="Show Poinsot ellipsoids in a third subplot (default: False)."
     )
 
+    p.add_argument(
+        "--sliders", action="store_true",
+        help="Add interactive sliders to dynamically adjust initial angular velocity (default: False)."
+    )
+
     return p.parse_args()
 
 
@@ -1088,7 +1267,10 @@ def main():
         vecscale=args.vecscale,
         traillen=args.traillen,
         dotpos=args.dotpos,
-        show_poinsot=args.poinsot
+        show_poinsot=args.poinsot,
+        w0_initial=w0,
+        tmax=args.tmax,
+        enable_sliders=args.sliders
     )
 
 

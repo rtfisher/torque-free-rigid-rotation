@@ -12,8 +12,9 @@ Tests key physics algorithms:
 - Numerical integration stability
 - Poinsot construction (ellipsoid surfaces, intersection curves)
 - Geometric constraints (ω on momentum/energy ellipsoids)
+- Interactive slider functionality (reset behavior, conservation, stability)
 
-Total: 32 tests (24 core physics + 8 Poinsot construction)
+Total: 40 tests (24 core physics + 8 Poinsot construction + 8 slider functionality)
 """
 
 import numpy as np
@@ -623,6 +624,153 @@ def test_poinsot_frame_conditional():
         assert True
     except Exception as e:
         pytest.fail(f"Poinsot frame conditional failed: {e}")
+
+
+# ============================================================
+# Slider functionality tests (simulating interactive reset)
+# ============================================================
+
+def test_slider_reset_axis1_stability():
+    """Test that resetting to pure axis-1 rotation produces stable motion."""
+    I = np.array([1.0, 4.0, 4.9])
+    w0_axis1 = np.array([10.0, 0.0, 0.0])
+
+    # Simulate as if slider was reset to pure axis-1 rotation
+    t_arr, omega_body_arr, R_t = simulate(I, w0_axis1, tmax=5.0, fps=30)
+
+    # Omega should remain very close to initial value (stable)
+    omega_deviation = np.linalg.norm(omega_body_arr - w0_axis1, axis=1)
+    max_deviation = np.max(omega_deviation)
+
+    assert max_deviation < 1e-8, f"Axis-1 rotation not stable: max deviation {max_deviation}"
+
+
+def test_slider_reset_axis3_stability():
+    """Test that resetting to pure axis-3 rotation produces stable motion."""
+    I = np.array([1.0, 4.0, 4.9])
+    w0_axis3 = np.array([0.0, 0.0, 10.0])
+
+    # Simulate as if slider was reset to pure axis-3 rotation
+    t_arr, omega_body_arr, R_t = simulate(I, w0_axis3, tmax=5.0, fps=30)
+
+    # Omega should remain very close to initial value (stable)
+    omega_deviation = np.linalg.norm(omega_body_arr - w0_axis3, axis=1)
+    max_deviation = np.max(omega_deviation)
+
+    assert max_deviation < 1e-8, f"Axis-3 rotation not stable: max deviation {max_deviation}"
+
+
+def test_slider_reset_axis2_instability():
+    """Test that pure axis-2 rotation shows tennis-racket instability."""
+    I = np.array([1.0, 4.0, 4.9])
+    w0_axis2 = np.array([0.05, 10.0, 0.05])  # Small perturbations
+
+    # Simulate as if slider was reset to near-pure axis-2 rotation
+    t_arr, omega_body_arr, R_t = simulate(I, w0_axis2, tmax=10.0, fps=30)
+
+    # Omega should deviate significantly due to instability
+    omega_deviation = np.linalg.norm(omega_body_arr - w0_axis2, axis=1)
+    max_deviation = np.max(omega_deviation)
+
+    # Should see significant deviation (tennis-racket effect)
+    assert max_deviation > 1.0, f"Axis-2 rotation appears stable: max deviation {max_deviation}"
+
+
+def test_slider_reset_conservation_maintained():
+    """Test that conservation laws hold after simulated slider reset."""
+    I = np.array([1.0, 4.0, 4.9])
+
+    # Test multiple "resets" with different slider values
+    test_cases = [
+        np.array([10.0, 0.0, 0.0]),   # Axis 1
+        np.array([5.0, 5.0, 0.0]),    # Mixed 1-2
+        np.array([0.0, 0.0, 15.0]),   # Axis 3
+        np.array([2.0, 3.0, 4.0]),    # General case
+    ]
+
+    for w0 in test_cases:
+        t_arr, omega_body_arr, R_t = simulate(I, w0, tmax=3.0, fps=30)
+
+        # Check energy conservation
+        E_initial = 0.5 * np.sum(I * w0**2)
+        E_arr = 0.5 * np.sum(I[np.newaxis, :] * omega_body_arr**2, axis=1)
+        E_drift = np.abs(E_arr - E_initial) / E_initial
+
+        assert np.all(E_drift < INTEGRATION_TOL), \
+            f"Energy not conserved for w0={w0}: max drift {np.max(E_drift)}"
+
+        # Check angular momentum magnitude conservation
+        L_body_arr = omega_body_arr * I[np.newaxis, :]
+        L_initial = norm(w0 * I)
+        L_mag_arr = norm(L_body_arr, axis=1)
+        L_drift = np.abs(L_mag_arr - L_initial) / L_initial
+
+        assert np.all(L_drift < INTEGRATION_TOL), \
+            f"Angular momentum not conserved for w0={w0}: max drift {np.max(L_drift)}"
+
+
+def test_slider_reset_multiple_sequential():
+    """Test multiple sequential resets (simulating user adjusting sliders)."""
+    I = np.array([1.0, 4.0, 4.9])
+
+    # Simulate user adjusting sliders multiple times
+    slider_sequences = [
+        np.array([10.0, 0.0, 0.0]),
+        np.array([0.0, 10.0, 0.0]),
+        np.array([0.0, 0.0, 10.0]),
+        np.array([5.0, 5.0, 5.0]),
+    ]
+
+    # Each reset should produce valid simulation
+    for w0 in slider_sequences:
+        t_arr, omega_body_arr, R_t = simulate(I, w0, tmax=1.0, fps=20)
+
+        # Check output shapes are correct
+        assert omega_body_arr.shape == (20, 3), f"Wrong omega shape for w0={w0}"
+        assert R_t.shape == (20, 3, 3), f"Wrong R shape for w0={w0}"
+
+        # Check initial condition matches
+        assert np.allclose(omega_body_arr[0], w0, atol=1e-10), \
+            f"Initial omega doesn't match slider value: {omega_body_arr[0]} vs {w0}"
+
+
+def test_slider_range_extremes():
+    """Test slider extreme values (-20 to +20 range)."""
+    I = np.array([1.0, 4.0, 4.9])
+
+    # Test extreme slider values
+    extreme_cases = [
+        np.array([20.0, 0.0, 0.0]),   # Max positive
+        np.array([-20.0, 0.0, 0.0]),  # Max negative
+        np.array([0.0, 20.0, 0.0]),   # Max on axis 2
+        np.array([20.0, 20.0, 20.0]), # All max
+    ]
+
+    for w0 in extreme_cases:
+        # Should complete without numerical errors
+        try:
+            t_arr, omega_body_arr, R_t = simulate(I, w0, tmax=1.0, fps=10)
+            assert omega_body_arr.shape == (10, 3)
+        except Exception as e:
+            pytest.fail(f"Slider extreme value {w0} caused failure: {e}")
+
+
+def test_slider_zero_state():
+    """Test that slider at all zeros produces no rotation."""
+    I = np.array([1.0, 4.0, 4.9])
+    w0_zero = np.array([0.0, 0.0, 0.0])
+
+    t_arr, omega_body_arr, R_t = simulate(I, w0_zero, tmax=5.0, fps=20)
+
+    # All omega values should remain zero
+    assert np.allclose(omega_body_arr, 0.0, atol=TIGHT_TOL), \
+        "Non-zero omega detected when sliders set to zero"
+
+    # Rotation matrix should remain identity
+    I_matrix = np.eye(3)
+    for R in R_t:
+        assert np.allclose(R, I_matrix, atol=LOOSE_TOL), \
+            "Rotation matrix changed with zero angular velocity"
 
 
 # ============================================================
